@@ -1,0 +1,4 @@
+importFrom(WGCNA, orderMEs, plotEigengeneNetworks)
+importFrom(pheatmap, pheatmap)
+importFrom(RColorBrewer, brewer.pal)
+export(geneFilter, normalization, METcorplot, METexprplot)

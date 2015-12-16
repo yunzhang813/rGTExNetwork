@@ -1,0 +1,146 @@
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, 
+                      warning=FALSE, message=FALSE)
+```
+
+---
+title: "rGTExNetwork Package Vignette"
+author: "Yun Zhang"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{rGTExNetwork Package Vignette}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+This vignette is wrote for the final project of BST550 Genomic Data Analysis Using R/Bioconductor (Fall 2015). 
+
+# Introduction
+
+Non-biological variability due to technical artifacts, such as lab- and batch-effects, is present in all high-throughput genomic technologies. These effects can lead to erroneous results if appropriate methods are not used to address them. There spurious effects have the potential to produce false differences in expression and false between-gene correlations across a variety of technologies. However, to our knowledge, their effect on gene network reconstruction has not been explicitly studied. In the project, we plan to conduct such an assessment.
+
+## Data Set
+
+The Genotype Tissue Expression (GTEx) project is a newly released data set project, which collected genetics data from more than 30 tissues from human donors with richly diversified genotypes. This data set serves as a perfect source to study batch-effects on gene network as the samples were ideally "undiseased". We've picked up the [dbGaP Accession phs000424.v4.p1](http://www.gtexportal.org/home/datasets) data from the project. We started to look at the RNA-sequencing data and the lung tissue only.
+
+## Co-expression Network
+
+The Weighted Correlation Network Analysis is a popular tool to reconstruct co-expression network. There is an easy-to-implement R package `WGCNA` for this approach. It does the network analysis based on the correlation structure among genes, and reports *gene modules* which are groups of highly correlated genes. Each module has an *eigengene*, which is an artificial gene that represents the overall gene expression profile in a module. Later, we will show that certain gene modules are indeed due to batch-effects.
+
+# The Lung Example
+
+```{r}
+library(rGTExNetwork)
+library(WGCNA)
+## set up some global setting for WGCNA
+options(stringsAsFactors = FALSE) # this setting is important, do not omit!
+```
+
+## Data Preprocessing and Filtering
+
+We prepocessed the raw count data using variance-stabilizing transformation from the `DESeq2` package. Low expression and small variance genes are filtered out as appropriate. This data set consists of 175 genes and 133 samples.
+
+```{r}
+data(lungData)
+datExpr <- lungData
+nGenes <- ncol(datExpr)
+nSamples <- nrow(datExpr)
+```
+
+## Fitting the WGCNA network
+
+For the purpose of this vignette, simply set the soft power equal to 1. For more information about how to select an appropriate soft power, please refer to the `WGCNA` package.
+```{r}
+softPower <- 1
+```
+
+The one-step fitting of the network is to use the `blockwiseModules` function. It is also available to construct the network step-by-step for a data set containing much more genes. Please refer to the `WGCNA` package.
+```{r}
+net <- blockwiseModules(datExpr, power = softPower,
+                        TOMType = "unsigned", minModuleSize = 10,
+                        reassignThreshold = 0, mergeCutHeight = 0.25,
+                        numericLabels = TRUE, pamRespectsDendro = FALSE,
+                        saveTOMs = FALSE,
+                        verbose = 3)
+```
+
+The gene modules found by `WGCNA`. There are 175 genes in total. They are classified into three gene modules, labeled 1 to 3 in order of descending size, with size ranging from 70 to 14 genes. The label 0 groups genes outside of all modules.
+```{r}
+## number of modules
+table(net$colors); sum(table(net$colors))
+```
+
+The chunk of codes below converts gene module labels to actual colors and plots the dendrogram of the network with gene module colors underneath. The grey color is reserved for genes not belonging to any module.
+```{r}
+## convert labels to colors for plotting
+moduleColors <- labels2colors(net$colors)
+table(moduleColors)
+## plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[1]], moduleColors[net$blockGenes[[1]]],
+                    "Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+```
+
+For each gene module, there is a corresponding module eigengene, which is defined as the first principal component of the given module. It can be considered a representative of the gene expression profiles in the module.
+```{r}
+## calcuate eigengenes
+MEs <- moduleEigengenes(datExpr, moduleColors)$eigengenes
+rownames(MEs) <- rownames(datExpr)
+```
+
+Later on, in order to make the actual gene expression and the eigengene expression comparable, we rescale our expression data into unit length per gene.
+```{r}
+datExpr.normed <- normalization(datExpr)
+```
+
+
+## Identifying Batch-effect on Network
+
+We highly suspect that some gene modules are induced by batch-effects. Here we look at two phenotype trait variable - ventilator and gender. Load the phenotype data related to the lung data, which is stored in the `lungMET` data set.
+
+```{r}
+data(phenoData)
+```
+
+Look at the correlation between both trait variables and the module eigengenes.
+```{r}
+## plot the correlations among the eigengenes and the clinical traits
+METcorplot(MEs, trait=cbind(ventilator,gender))
+```
+
+We see that ventilator is highly correlated with MEblue, and MEbrown contains mostly gender genes.
+```{r}
+## ventilator is highly correlated with MEblue
+ventilator[,1] <- as.factor(ventilator[,1])
+METexprplot(MEs, trait=ventilator, MEcolor="blue", datExpr.normed, moduleColors,
+            fontsize_row=7)
+
+## MEbrown contains mostly gender genes
+gender[gender==1] <- "M"
+gender[gender==0] <- "F"
+METexprplot(MEs, trait=gender, MEcolor="brown", datExpr.normed, moduleColors)
+```
+
+Both heatmaps above show the normed gene expression profile in given gene modules. Genes shown in rows and samples shown in columns. On the top, the module eigengene and its correlated trait variable are plotted as well. Samples (columns) are ordered in the ascending order of the eigengene. In this way, we may compare the expression profile pattern of each gene in the given module with its eigengene. In both plots, we see the eigengenes are indeed good representatives of the individual genes in their corresponding gene modules. Also, the almost concordance pattern between the trait variable and the module eigengene once again convinced that these gene modules are induced by batch-effects.
+
+# Conlusion
+
+Up to now, using the GTEx data and the WGCNA network reconstruction method, we've shown that batch-effects are indeed affacting correlation network inference. We may want to try some existing batch-effect adjusting methods, which are designed for gene differential analysis though, to see if they work as well for gene network inference. Also, we may explore other types of gene networks, such as those based on information theory or Bayesian inference.
+
+# See Also
+
+Genotype Tissue Expression (GTEx): 
+[http://www.gtexportal.org](http://www.gtexportal.org)
+
+Weighted Correlation Network Analysis (WGCNA):
+[R package](https://labs.genetics.ucla.edu/horvath/CoexpressionNetwork/Rpackages/WGCNA/)
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
