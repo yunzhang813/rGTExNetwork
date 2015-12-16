@@ -1,0 +1,13 @@
+Package: rGTExNetwork
+Type: Package
+Title: Co-Expression Network Analysis on GTEx Data
+Version: 0.0.1
+Date: 2015-12-16
+Author: Yun Zhang
+Maintainer: Yun Zhang <yun_zhang@urmc.rochester.edu>
+Description: Based on the Weighted Gene Co-Expression Network Analysis (WGCNA), this package provides tools to investigate the batch effect on networks using the lung example in GTEx dataset.
+Depends: R (>= 3.1.0)
+Imports: WGCNA, pheatmap, RColorBrewer
+VignetteBuilder: knitr
+Suggests: knitr, rmarkdown, RUnit, BiocGenerics
+License: GPL-3
